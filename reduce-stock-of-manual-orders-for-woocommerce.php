@@ -5,7 +5,7 @@
  * Description: Automatically reduce or increase stock levels of manual orders in WooCommerce.
  * Author:      Claudio Sanches
  * Author URI:  https://claudiosmweb.com
- * Version:     1.0.1
+ * Version:     1.0.2
  * License:     GPLv2 or later
  * Text Domain: reduce-stock-of-manual-orders-for-woocommerce
  * Domain Path: /languages
@@ -43,7 +43,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 		 *
 		 * @var string
 		 */
-		const VERSION = '1.0.1';
+		const VERSION = '1.0.2';
 
 		/**
 		 * Instance of this class.
@@ -115,7 +115,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 				$order->reduce_order_stock();
 			}
 
-			add_post_meta( $order_id, '_order_stock_reduced', '1', true );
+			$this->set_stock_reduced( $order_id, true );
 		}
 
 		/**
@@ -139,7 +139,12 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 						$product = $order->get_product_from_item( $item );
 
 						if ( $product && $product->exists() && $product->managing_stock() ) {
-							$old_stock = $product->stock;
+							// Support for WooCommerce 3.0.
+							if ( is_callable( array( $product, 'get_stock_quantity' ) ) ) {
+								$old_stock = $product->get_stock_quantity();
+							} else {
+								$old_stock = $product->stock;
+							}
 
 							// Support for WooCommerce 2.7.
 							if ( is_callable( array( $item, 'get_quantity' ) ) ) {
@@ -148,7 +153,12 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 								$quantity = apply_filters( 'woocommerce_order_item_quantity', $item['qty'], $order, $item );
 							}
 
-							$new_stock = $product->increase_stock( $quantity );
+							if (function_exists('wc_update_product_stock')) {
+								$new_stock = wc_update_product_stock( $product, $quantity, 'increase' );
+							} else {
+								$new_stock = $product->increase_stock( $quantity );
+							}
+
 							$item_name = $product->get_sku() ? $product->get_sku() : $item['product_id'];
 
 							if ( ! empty( $item['variation_id'] ) ) {
@@ -157,10 +167,51 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 								$order->add_order_note( sprintf( __( 'Item %1$s stock increased from %2$s to %3$s.', 'reduce-stock-of-manual-orders-for-woocommerce' ), $item_name, $old_stock, $new_stock ) );
 							}
 
-							delete_post_meta( $order_id, '_order_stock_reduced' );
+							$this->set_stock_reduced( $order_id, false );
 						}
 					}
 				}
+			}
+		}
+
+		/**
+		 * Check if stock has been reduced.
+		 *
+		 * @param int    $order_id Order ID.
+		 *
+		 * @return bool
+		 */
+		protected function get_stock_reduced( $order_id ) {
+			$order = wc_get_order( $order_id );
+			$old_method_result = '1' === get_post_meta( $order_id, '_order_stock_reduced', true );
+
+			if ( method_exists( $order, 'get_data_store' ) ) {
+				$data_store = $order->get_data_store();
+				// accept '1' for backwards compatibility
+				return $data_store->get_stock_reduced( $order ) || $old_method_result;
+			}
+
+			return $old_method_result;
+		}
+
+		/**
+		 * Set the order_stock_reduced flag.
+		 *
+		 * @param int    $order_id Order ID.
+		 * @param bool   $set.
+		 *
+		 * @return void
+		 */
+		protected function set_stock_reduced( $order_id, $set ) {
+			$order = wc_get_order( $order_id );
+
+			if ( method_exists( $order, 'get_data_store' ) ) {
+				$data_store = $order->get_data_store();
+				$data_store->set_stock_reduced( $order_id, $set );
+			} elseif ( $set ) {
+				add_post_meta( $order_id, '_order_stock_reduced', '1', true );
+			} else {
+				delete_post_meta( $order_id, '_order_stock_reduced' );
 			}
 		}
 
@@ -176,7 +227,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 			$status   = $this->normalize_order_status( $status );
 			$statuses = apply_filters( 'rsmo_wc_reduce_stock_statuses', array( 'processing', 'completed' ) );
 
-			return in_array( $status, $statuses, true ) && '1' !== get_post_meta( $order_id, '_order_stock_reduced', true );
+			return in_array( $status, $statuses, true ) && !$this->get_stock_reduced( $order_id );
 		}
 
 		/**
@@ -191,7 +242,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 			$status   = $this->normalize_order_status( $status );
 			$statuses = apply_filters( 'rsmo_wc_increase_stock_statuses', array( 'cancelled' ) );
 
-			return in_array( $status, $statuses, true ) && '1' === get_post_meta( $order_id, '_order_stock_reduced', true );
+			return in_array( $status, $statuses, true ) && $this->get_stock_reduced( $order_id );
 		}
 
 		/**
