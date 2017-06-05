@@ -139,7 +139,12 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 						$product = $order->get_product_from_item( $item );
 
 						if ( $product && $product->exists() && $product->managing_stock() ) {
-							$old_stock = $product->stock;
+							// Support for WooCommerce 3.0.
+							if ( is_callable( array( $product, 'get_stock_quantity' ) ) ) {
+								$old_stock = $product->get_stock_quantity();
+							} else {
+								$old_stock = $product->stock;
+							}
 
 							// Support for WooCommerce 2.7.
 							if ( is_callable( array( $item, 'get_quantity' ) ) ) {
@@ -148,7 +153,12 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 								$quantity = apply_filters( 'woocommerce_order_item_quantity', $item['qty'], $order, $item );
 							}
 
-							$new_stock = $product->increase_stock( $quantity );
+							if (function_exists('wc_update_product_stock')) {
+								$new_stock = wc_update_product_stock( $product, $quantity, 'increase' );
+							} else {
+								$new_stock = $product->increase_stock( $quantity );
+							}
+
 							$item_name = $product->get_sku() ? $product->get_sku() : $item['product_id'];
 
 							if ( ! empty( $item['variation_id'] ) ) {
@@ -172,11 +182,16 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 		 * @return bool
 		 */
 		protected function get_stock_reduced( $order_id ) {
-			if ( class_exists( 'WC_Order_Data_Store_CPT' ) && method_exists( 'WC_Order_Data_Store_CPT', 'get_stock_reduced' ) ) {
-				return  WC_Order_Data_Store_CPT::get_stock_reduced( $order_id );
+			$order = wc_get_order( $order_id );
+			$old_method_result = '1' === get_post_meta( $order_id, '_order_stock_reduced', true );
+
+			if ( method_exists( $order, 'get_data_store' ) ) {
+				$data_store = $order->get_data_store();
+				// accept '1' for backwards compatibility
+				return $data_store->get_stock_reduced( $order ) || $old_method_result;
 			}
 
-			return '1' !== get_post_meta( $order_id, '_order_stock_reduced', true );
+			return $old_method_result;
 		}
 
 		/**
@@ -188,8 +203,11 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 		 * @return void
 		 */
 		protected function set_stock_reduced( $order_id, $set ) {
-			if ( class_exists( 'WC_Order_Data_Store_CPT' ) && method_exists( 'WC_Order_Data_Store_CPT', 'set_stock_reduced' ) ) {
-				WC_Order_Data_Store_CPT::set_stock_reduced( $order_id, $set );
+			$order = wc_get_order( $order_id );
+
+			if ( method_exists( $order, 'get_data_store' ) ) {
+				$data_store = $order->get_data_store();
+				$data_store->set_stock_reduced( $order_id, $set );
 			} elseif ( $set ) {
 				add_post_meta( $order_id, '_order_stock_reduced', '1', true );
 			} else {
