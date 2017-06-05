@@ -5,7 +5,7 @@
  * Description: Automatically reduce or increase stock levels of manual orders in WooCommerce.
  * Author:      Claudio Sanches
  * Author URI:  https://claudiosmweb.com
- * Version:     1.0.1
+ * Version:     1.0.2
  * License:     GPLv2 or later
  * Text Domain: reduce-stock-of-manual-orders-for-woocommerce
  * Domain Path: /languages
@@ -43,7 +43,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 		 *
 		 * @var string
 		 */
-		const VERSION = '1.0.1';
+		const VERSION = '1.0.2';
 
 		/**
 		 * Instance of this class.
@@ -115,7 +115,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 				$order->reduce_order_stock();
 			}
 
-			add_post_meta( $order_id, '_order_stock_reduced', '1', true );
+			$this->set_stock_reduced( $order_id, true );
 		}
 
 		/**
@@ -157,10 +157,43 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 								$order->add_order_note( sprintf( __( 'Item %1$s stock increased from %2$s to %3$s.', 'reduce-stock-of-manual-orders-for-woocommerce' ), $item_name, $old_stock, $new_stock ) );
 							}
 
-							delete_post_meta( $order_id, '_order_stock_reduced' );
+							$this->set_stock_reduced( $order_id, false );
 						}
 					}
 				}
+			}
+		}
+
+		/**
+		 * Check if stock has been reduced.
+		 *
+		 * @param int    $order_id Order ID.
+		 *
+		 * @return bool
+		 */
+		protected function get_stock_reduced( $order_id ) {
+			if ( class_exists( 'WC_Order_Data_Store_CPT' ) && method_exists( 'WC_Order_Data_Store_CPT', 'get_stock_reduced' ) ) {
+				return  WC_Order_Data_Store_CPT::get_stock_reduced( $order_id );
+			}
+
+			return '1' !== get_post_meta( $order_id, '_order_stock_reduced', true );
+		}
+
+		/**
+		 * Set the order_stock_reduced flag.
+		 *
+		 * @param int    $order_id Order ID.
+		 * @param bool   $set.
+		 *
+		 * @return void
+		 */
+		protected function set_stock_reduced( $order_id, $set ) {
+			if ( class_exists( 'WC_Order_Data_Store_CPT' ) && method_exists( 'WC_Order_Data_Store_CPT', 'set_stock_reduced' ) ) {
+				WC_Order_Data_Store_CPT::set_stock_reduced( $order_id, $set );
+			} elseif ( $set ) {
+				add_post_meta( $order_id, '_order_stock_reduced', '1', true );
+			} else {
+				delete_post_meta( $order_id, '_order_stock_reduced' );
 			}
 		}
 
@@ -176,7 +209,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 			$status   = $this->normalize_order_status( $status );
 			$statuses = apply_filters( 'rsmo_wc_reduce_stock_statuses', array( 'processing', 'completed' ) );
 
-			return in_array( $status, $statuses, true ) && '1' !== get_post_meta( $order_id, '_order_stock_reduced', true );
+			return in_array( $status, $statuses, true ) && !$this->get_stock_reduced( $order_id );
 		}
 
 		/**
@@ -191,7 +224,7 @@ if ( ! class_exists( 'RSMO_WooCommerce' ) ) :
 			$status   = $this->normalize_order_status( $status );
 			$statuses = apply_filters( 'rsmo_wc_increase_stock_statuses', array( 'cancelled' ) );
 
-			return in_array( $status, $statuses, true ) && '1' === get_post_meta( $order_id, '_order_stock_reduced', true );
+			return in_array( $status, $statuses, true ) && $this->get_stock_reduced( $order_id );
 		}
 
 		/**

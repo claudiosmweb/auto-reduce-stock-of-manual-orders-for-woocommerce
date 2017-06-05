@@ -41,6 +41,10 @@ Note that is not necessary any kind of configuration.
 
 ## Changelog ##
 
+### 1.0.2 - 2017/06/05 ###
+
+- Fixed order_stock_reduced flag for WooCommerce 3.0.7 to prevent duplicate reductions and enable stock increase when the order is cancelled after stock reduction.
+
 ### 1.0.1 - 2017/01/08 ###
 
 - Fixed how reduce order when using the order quick action buttons.
